@@ -87,3 +87,45 @@ class TestConfiguration:
 
         logger = get_logger("test")
         logger.info("configured", outcome="ok")  # must not raise
+
+
+class TestRedactionDoesNotCorruptTheLog:
+    """Regression tests for a bug 435 unit tests missed.
+
+    The first version of the phone pattern matched any run of digits and
+    dashes, so it ate the date out of every ISO timestamp — turning
+    `2026-07-25T13:36:10Z` into `<phone>T13:36:10Z`. The whole suite passed;
+    starting the server for ten seconds made it obvious.
+    """
+
+    def test_iso_timestamps_survive(self) -> None:
+        result = redact(timestamp="2026-07-25T13:36:10.432849Z")
+
+        assert result["timestamp"] == "2026-07-25T13:36:10.432849Z"
+
+    def test_a_date_inside_an_arbitrary_field_survives(self) -> None:
+        """The structural-key skip is not the only defence — the pattern
+        itself must not treat an 8-digit date as a 10-digit phone number."""
+        result = redact(detail="scraped on 2026-07-25 at 13:36")
+
+        assert "2026-07-25" in str(result["detail"])
+
+    @pytest.mark.parametrize("key", ["level", "event", "logger"])
+    def test_structural_fields_are_left_alone(self, key: str) -> None:
+        result = redact(**{key: "knowledge_base_loaded"})
+
+        assert result[key] == "knowledge_base_loaded"
+
+    def test_real_phone_numbers_are_still_caught(self) -> None:
+        """The fix must not have simply disabled the control."""
+        result = redact(detail="call 98199 62446 or +91 98765 43210")
+
+        assert "98199 62446" not in str(result["detail"])
+        assert "+91 98765 43210" not in str(result["detail"])
+
+    @pytest.mark.parametrize(
+        "text",
+        ["G+32 storeys", "1.75 lakh sq.ft", "400010", "refuge areas on 8th, 15th and 22nd"],
+    )
+    def test_knowledge_base_figures_are_not_mistaken_for_phone_numbers(self, text: str) -> None:
+        assert redact(detail=text)["detail"] == text

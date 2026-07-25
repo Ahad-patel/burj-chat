@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     rate_limit_per_ip_per_minute: Annotated[int, Field(gt=0)] = 20
     rate_limit_per_session_per_hour: Annotated[int, Field(gt=0)] = 100
 
+    #: Whether to read the client IP from `X-Forwarded-For`. Defaults to False
+    #: because that header is client-controlled: trusting it without a proxy in
+    #: front means an attacker sends a fresh value per request and the per-IP
+    #: limit silently stops existing. Enable only when a reverse proxy that
+    #: *overwrites* the header terminates every connection.
+    trust_proxy_headers: bool = False
+
     # --- Conversation retention ----------------------------------------------
     conversation_ttl_minutes: Annotated[int, Field(gt=0)] = 30
     max_messages_per_conversation: Annotated[int, Field(gt=0, le=40)] = 40

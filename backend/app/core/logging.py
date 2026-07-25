@@ -40,8 +40,29 @@ _SENSITIVE_KEYS: Final = frozenset(
     }
 )
 
+#: Fields structlog generates itself. They are never visitor input, and
+#: scrubbing them corrupts the log: the first version of this module ate the
+#: date out of every ISO timestamp, because "2026-07-25" is digits and dashes
+#: and matched the phone pattern. 435 unit tests passed; running the server for
+#: ten seconds showed it immediately.
+_STRUCTURAL_KEYS: Final = frozenset({"timestamp", "level", "event", "logger", "exception"})
+
 _EMAIL_PATTERN: Final = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
-_PHONE_PATTERN: Final = re.compile(r"(?:\+?\d[\d\s-]{7,}\d)")
+
+#: A *candidate* run of digits and separators. Whether it is really a phone
+#: number is decided by `_scrub_phone`, because no regex distinguishes
+#: "2026-07-25" from "98199 62446" on shape alone — only on digit count.
+_PHONE_CANDIDATE: Final = re.compile(r"\+?\d[\d\s-]{6,}\d")
+
+#: Shortest run treated as a phone number. Indian mobiles are 10 digits; an
+#: ISO date is 8, which is what keeps timestamps intact.
+_MIN_PHONE_DIGITS: Final = 10
+
+
+def _scrub_phone(match: re.Match[str]) -> str:
+    raw = match.group(0)
+    digits = re.sub(r"\D", "", raw)
+    return "<phone>" if len(digits) >= _MIN_PHONE_DIGITS else raw
 
 
 def _redact(
@@ -54,11 +75,13 @@ def _redact(
     guardrails tunable without reading anyone's messages.
     """
     for key, value in list(event_dict.items()):
+        if key in _STRUCTURAL_KEYS:
+            continue
         if key in _SENSITIVE_KEYS:
             event_dict[key] = f"<redacted len={len(str(value))}>"
         elif isinstance(value, str):
             value = _EMAIL_PATTERN.sub("<email>", value)
-            event_dict[key] = _PHONE_PATTERN.sub("<phone>", value)
+            event_dict[key] = _PHONE_CANDIDATE.sub(_scrub_phone, value)
 
     return event_dict
 

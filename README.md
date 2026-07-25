@@ -21,8 +21,8 @@ general-knowledge answer.
 | 2 | Knowledge base builder | ✅ Done |
 | 3 | Domain layer + `LLMClient` port | ✅ Done |
 | 4 | LLM adapters + conversation service | ✅ Done |
-| 5 | API layer | ⬜ Next |
-| 6 | Embeddable widget | ⬜ |
+| 5 | API layer | ✅ Done |
+| 6 | Embeddable widget | ⬜ Next |
 | 7 | Voice (optional) | ⬜ |
 
 ---
@@ -45,6 +45,10 @@ make ci             # lint, types, tests — exactly what CI runs
 | `make ci` | All of the above — mirrors the pipeline |
 | `make kb` | Regenerate the knowledge base from the live site |
 | `make run` | Start the API on :8000 with auto-reload |
+
+The app is served via a factory (`uvicorn app.main:create_app --factory`) — there
+is deliberately no module-level `app`, so importing `app.main` does not require
+a live API key.
 
 ---
 
@@ -175,6 +179,29 @@ CI fails the build on any violation.
 | SAST | `semgrep` — advisory, non-blocking until its signal rate is proven on this repo |
 
 ---
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/chat` | Ask a question. Returns `{conversation_id, answer, is_fallback}` |
+| `GET /health` | Liveness — restart me if this fails |
+| `GET /ready` | Readiness — route traffic to me if this passes |
+
+Health and readiness are separate on purpose: a knowledge-base failure should
+pull an instance out of rotation, not trigger a restart loop. `/ready` inspects
+actual content, because a loaded-but-empty knowledge base is a process that
+looks perfectly healthy while answering every question with the fallback.
+
+The response deliberately omits the internal outcome and rejection reason.
+Returning *which* guardrail refused would turn the endpoint into an oracle for
+probing the filter. `is_fallback` is safe because the fallback sentence is fixed
+and self-identifying — it tells a caller nothing the answer text doesn't.
+
+`conversation_id` is a server-minted UUID4. There is no authentication on this
+endpoint, so unguessable identifiers are the only thing stopping someone walking
+`1`, `2`, `3` and appending to other visitors' conversations — which is why the
+schema rejects anything that isn't UUID4 shaped.
 
 ## Security
 

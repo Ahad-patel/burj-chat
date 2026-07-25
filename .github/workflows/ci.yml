@@ -39,13 +39,13 @@ jobs:
       # ruff's `S` ruleset is bandit, ported. Running both would surface the
       # same findings twice, so bandit is deliberately not in this pipeline.
       - name: ruff (lint + security)
-        run: uv run ruff check --output-format=github .
+        run: uv run --all-extras ruff check --output-format=github .
 
       - name: ruff (format check)
-        run: uv run ruff format --check --diff .
+        run: uv run --all-extras ruff format --check --diff .
 
       - name: mypy (strict)
-        run: uv run mypy
+        run: uv run --all-extras mypy
 
       # Rebuilds from the committed raw/ HTML — no network, so a site outage
       # cannot redden the build. Catches a knowledge_base.xml edited by hand or
@@ -54,12 +54,12 @@ jobs:
         run: uv run --extra kb python knowledge-base/build_kb.py --check
 
       - name: pytest
-        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+        run: uv run --all-extras pytest --cov --cov-report=term-missing --cov-report=xml
 
       # The guardrails are the one thing in this codebase that must not
       # regress, so they carry a higher bar than the 80% project-wide gate.
       - name: Guardrail coverage
-        run: uv run pytest --cov=backend/app/domain/guardrails --cov-fail-under=95 -q
+        run: uv run --all-extras pytest --cov=backend/app/domain/guardrails --cov-fail-under=95 -q
 
       - name: Upload coverage
         if: always()
