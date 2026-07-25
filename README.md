@@ -20,8 +20,8 @@ general-knowledge answer.
 | 1 | Scaffold, tooling, CI | ✅ Done |
 | 2 | Knowledge base builder | ✅ Done |
 | 3 | Domain layer + `LLMClient` port | ✅ Done |
-| 4 | LLM adapters + conversation service | ⬜ Next |
-| 5 | API layer | ⬜ |
+| 4 | LLM adapters + conversation service | ✅ Done |
+| 5 | API layer | ⬜ Next |
 | 6 | Embeddable widget | ⬜ |
 | 7 | Voice (optional) | ⬜ |
 
@@ -80,6 +80,21 @@ LLM_PROVIDER=anthropic   # Claude (production option)
 ```
 
 Nothing else changes. No code, no config, no redeploy of the widget.
+`test_only_the_provider_field_differs` asserts that literally: it diffs every
+settings field across the two configurations and requires the difference to be
+exactly `{"llm_provider"}`.
+
+**The adapters are not symmetric, and that is the point.** Current Claude models
+(Opus 5, Sonnet 5, Opus 4.8/4.7) **reject** `temperature` with a 400. Gemini
+requires it. A service that set `temperature` on an SDK call directly would fail
+on the first visitor question the moment you flipped the env var — breaking the
+exact promise this architecture makes.
+
+Instead the domain expresses *intent* (`temperature=0.2` — "be faithful, not
+creative") as a port field, and
+[anthropic_client.py](backend/app/infrastructure/llm/anthropic_client.py) decides
+how to honour it per model: sent where accepted, omitted where not, logged once
+at startup either way. Absorbing that asymmetry is what an adapter is *for*.
 
 ### The grounding guardrail
 
