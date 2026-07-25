@@ -1,0 +1,188 @@
+# Burj Constructions AI Assistant
+
+A strictly grounded AI assistant for [burjconstructions.com](https://burjconstructions.com),
+embeddable into their existing ASP.NET WebForms site via a single script tag.
+
+The assistant answers **only** from a curated knowledge base built from the company's own
+website. Questions outside that scope receive a fallback pointing to the sales team — never a
+general-knowledge answer.
+
+> **Not fine-tuning.** The knowledge base is injected into the model's context at request time
+> (grounding). No model is trained or fine-tuned; there is no ML pipeline and no GPU.
+
+---
+
+## Status
+
+| Phase | Scope | State |
+|---|---|---|
+| 0 | Architecture plan | ✅ Done |
+| 1 | Scaffold, tooling, CI | ✅ Done |
+| 2 | Knowledge base builder | ⬜ Next |
+| 3 | Domain layer + `LLMClient` port | ⬜ |
+| 4 | LLM adapters + conversation service | ⬜ |
+| 5 | API layer | ⬜ |
+| 6 | Embeddable widget | ⬜ |
+| 7 | Voice (optional) | ⬜ |
+
+---
+
+## Quick start
+
+```bash
+make setup          # install Python 3.12 + dependencies, create .env
+# add GEMINI_API_KEY to .env — free tier: https://aistudio.google.com/apikey
+make ci             # lint, types, tests — exactly what CI runs
+```
+
+| Command | Does |
+|---|---|
+| `make setup` | Install the pinned interpreter and all dependencies |
+| `make lint` | ruff lint + security rules + format check |
+| `make types` | mypy, strict mode |
+| `make test` | pytest |
+| `make cov` | pytest with coverage |
+| `make ci` | All of the above — mirrors the pipeline |
+| `make kb` | Regenerate the knowledge base from the live site |
+| `make run` | Start the API on :8000 with auto-reload |
+
+---
+
+## Architecture
+
+Clean Architecture with strictly inward-only dependencies.
+
+```
+        api  ─────┐
+     services ────┼──▶  domain  (stdlib only — no framework, no SDK)
+ infrastructure ──┘         ▲
+                            │ declares
+                        ports/LLMClient
+                            ▲ implements
+              GeminiClient ─┴─ AnthropicClient
+```
+
+The domain layer imports nothing but the standard library. That constraint is what makes the
+guardrails testable without a network call, and the LLM provider swappable by changing one
+environment variable.
+
+**It is enforced, not documented.**
+[backend/tests/architecture/test_layer_boundaries.py](backend/tests/architecture/test_layer_boundaries.py)
+parses every domain module's syntax tree and fails the build on a forbidden import. A second test
+asserts no module outside the two adapters imports a vendor SDK — which is what makes
+"swapping providers costs one env var" a verifiable claim rather than an aspiration.
+
+### Swapping the LLM provider
+
+```bash
+LLM_PROVIDER=gemini      # Google AI Studio free tier (development default)
+LLM_PROVIDER=anthropic   # Claude (production option)
+```
+
+Nothing else changes. No code, no config, no redeploy of the widget.
+
+### The grounding guardrail
+
+Four independent layers, so no single bypass defeats the system:
+
+| Layer | Where | Runs |
+|---|---|---|
+| 1. Relevance pre-filter | `domain/guardrails/` | Before any LLM call — costs nothing, cannot be prompt-injected |
+| 2. Structured context | `domain/prompts/` | Knowledge base injected as delimited XML sections |
+| 3. Strict system prompt | `domain/prompts/` | Explicit refusal instructions with exact fallback wording |
+| 4. Response validation | `domain/guardrails/` | Structured-output contract + numeric grounding check |
+
+Layer 1 is tuned for **high precision, not high recall**: it rejects only what it is certain
+about, and lets ambiguous questions through to layers 3 and 4. A filter aggressive enough to
+catch everything would also reject *"how much does a 2BHK cost?"* — a real customer question with
+no company keyword in it. Cost control and defence in depth are Layer 1's job; the semantic
+decision belongs downstream.
+
+---
+
+## Layout
+
+```
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/           # FastAPI routers — thin, no business logic
+│   │   ├── core/             # config, composition root, rate limiting, logging
+│   │   ├── domain/           # PURE business logic — zero framework/SDK imports
+│   │   │   ├── entities/     ├── guardrails/
+│   │   │   ├── ports/        └── prompts/
+│   │   ├── services/         # use-cases orchestrating domain + infrastructure
+│   │   ├── infrastructure/   # llm/ adapters, kb/ loader
+│   │   └── schemas/          # Pydantic request/response models (the only Pydantic)
+│   └── tests/
+│       ├── unit/             # domain layer, LLM mocked, fast
+│       ├── integration/      # real provider, marked and skippable
+│       ├── security/         # prompt-injection and guardrail-bypass attempts
+│       └── architecture/     # dependency-rule enforcement
+├── knowledge-base/
+│   ├── raw/                  # scraped page content
+│   ├── overrides.yaml        # hand-curated corrections; wins over scraped data
+│   ├── build_kb.py           # scraper → structured KB builder
+│   └── knowledge_base.xml    # generated, committed, XML-tagged
+├── widget/                   # TypeScript + Vite → single self-contained JS file
+└── .github/workflows/ci.yml
+```
+
+`pyproject.toml` sits at the repo root rather than in `backend/` so that one lockfile, one ruff
+config, and one mypy config cover both the backend and the knowledge-base builder. The package
+still lives at `backend/app` and imports as `app`.
+
+---
+
+## Quality gates
+
+CI fails the build on any violation.
+
+| Gate | Tool |
+|---|---|
+| Lint, formatting, security rules | `ruff` (the `S` ruleset **is** bandit, ported — running both would duplicate findings) |
+| Static types | `mypy --strict` |
+| Tests + coverage | `pytest` — ≥80% overall, ≥95% on `domain/guardrails/` |
+| Architecture | AST-based dependency-rule tests |
+| Secret scanning | `gitleaks` over full history |
+| Dependency CVEs | `pip-audit` against the exported lockfile |
+| SAST | `semgrep` — advisory, non-blocking until its signal rate is proven on this repo |
+
+---
+
+## Security
+
+- All secrets in environment variables; `.env` is gitignored and gitleaks scans history for it
+- The LLM API key is **server-side only** — the widget never receives it
+- Rate limiting per IP and per session, sized to cap LLM spend rather than merely deter abuse
+- CORS locked to `burjconstructions.com` origins; no wildcards in production
+- Pydantic validation at every endpoint boundary
+- Security headers (CSP, HSTS, X-Content-Type-Options) on all responses
+- Errors never leak stack traces to clients
+- **No database and no PII at rest.** Conversations live in memory with a TTL. There is no lead
+  capture and no admin dashboard, so there is no stored-PII encryption layer — a key-management
+  surface that would protect nothing is a liability, not a control. If lead capture is added,
+  encryption ships in the same change.
+
+---
+
+## Knowledge base
+
+Built from ten pages, not the six in the site's navigation. The three project *listing* pages
+(`ongoing`, `completed`, `upcoming`) are navigation shells holding under 50 words each; roughly
+85% of the real content lives on the four project detail pages reached via their "Read More"
+links (`burj-ashrafi`, `burj-classic`, `burj-qadri`, `burj-chishti`).
+
+Total: ~6–7k words ≈ 10k tokens. **The entire knowledge base fits in every request's context**,
+which is why this project has no embeddings, no chunking, and no vector store. Retrieval would
+add moving parts and a failure mode to solve a problem that does not exist at this size.
+
+`build_kb.py` merges scraped output with a hand-maintained `overrides.yaml`, overrides winning.
+This exists because the source data contradicts itself — `ongoing.aspx` lists Burj Ashrafi as
+ongoing while `burj-ashrafi.aspx` reports it complete — and because the client needs a way to
+correct facts and add pricing without waiting on their webmaster.
+
+---
+
+## License
+
+Proprietary — © Burj Constructions.

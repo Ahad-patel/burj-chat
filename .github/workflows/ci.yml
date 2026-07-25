@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch — no point burning minutes on a
+# commit that has already been replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_FROZEN: "1"  # fail if uv.lock is out of date rather than silently resolving
+
+jobs:
+  quality:
+    name: Lint, types, and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      # ruff's `S` ruleset is bandit, ported. Running both would surface the
+      # same findings twice, so bandit is deliberately not in this pipeline.
+      - name: ruff (lint + security)
+        run: uv run ruff check --output-format=github .
+
+      - name: ruff (format check)
+        run: uv run ruff format --check --diff .
+
+      - name: mypy (strict)
+        run: uv run mypy
+
+      - name: pytest
+        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  supply-chain:
+    name: Secrets and dependency CVEs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs full history to scan past commits
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VERSION=8.21.2
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: gitleaks (secret scan)
+        run: gitleaks detect --source . --redact --verbose --exit-code 1
+
+      - name: Export locked dependencies
+        run: uv export --frozen --all-extras --no-emit-project --no-hashes -o requirements.txt
+
+      - name: pip-audit (dependency CVEs)
+        run: uvx pip-audit --requirement requirements.txt --strict
+
+  sast:
+    name: semgrep
+    runs-on: ubuntu-latest
+    # Advisory only. semgrep is noisy on a codebase this small, and a check
+    # nobody trusts is worse than no check. Promote to blocking once its signal
+    # rate has been observed on this repo for a few weeks.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run semgrep
+        run: |
+          pipx install semgrep
+          semgrep --config=p/python --config=p/security-audit --error --skip-unknown-extensions .
