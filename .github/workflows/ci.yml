@@ -56,6 +56,11 @@ jobs:
       - name: pytest
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
 
+      # The guardrails are the one thing in this codebase that must not
+      # regress, so they carry a higher bar than the 80% project-wide gate.
+      - name: Guardrail coverage
+        run: uv run pytest --cov=backend/app/domain/guardrails --cov-fail-under=95 -q
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

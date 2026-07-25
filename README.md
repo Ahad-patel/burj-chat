@@ -19,8 +19,8 @@ general-knowledge answer.
 | 0 | Architecture plan | ✅ Done |
 | 1 | Scaffold, tooling, CI | ✅ Done |
 | 2 | Knowledge base builder | ✅ Done |
-| 3 | Domain layer + `LLMClient` port | ⬜ Next |
-| 4 | LLM adapters + conversation service | ⬜ |
+| 3 | Domain layer + `LLMClient` port | ✅ Done |
+| 4 | LLM adapters + conversation service | ⬜ Next |
 | 5 | API layer | ⬜ |
 | 6 | Embeddable widget | ⬜ |
 | 7 | Voice (optional) | ⬜ |
@@ -85,12 +85,24 @@ Nothing else changes. No code, no config, no redeploy of the widget.
 
 Four independent layers, so no single bypass defeats the system:
 
-| Layer | Where | Runs |
+| Layer | Where | Guarantees |
 |---|---|---|
-| 1. Relevance pre-filter | `domain/guardrails/` | Before any LLM call — costs nothing, cannot be prompt-injected |
-| 2. Structured context | `domain/prompts/` | Knowledge base injected as delimited XML sections |
-| 3. Strict system prompt | `domain/prompts/` | Explicit refusal instructions with exact fallback wording |
-| 4. Response validation | `domain/guardrails/` | Structured-output contract + numeric grounding check |
+| 1. Relevance pre-filter | [relevance.py](backend/app/domain/guardrails/relevance.py) | Blocks injection, creative requests, competitors, and blatant general-knowledge questions **before any model call** — nothing to persuade |
+| 2. Structured context | [system_prompt.py](backend/app/domain/prompts/system_prompt.py) | Knowledge base injected as named XML sections, so Layer 4 can verify citations |
+| 3. Strict system prompt | [system_prompt.py](backend/app/domain/prompts/system_prompt.py) | Refusal rules with the exact fallback wording, plus the JSON output contract |
+| 4. Response validation | [validator.py](backend/app/domain/guardrails/validator.py) | Rejects invented figures, fake section citations, and competitor mentions. Fails closed |
+
+**Each layer is deliberately partial, and the docs say which part.** Layer 1
+cannot be airtight without rejecting real customers. Layer 4 checks *factual
+grounding*, not topicality — a general vocabulary-overlap test was implemented,
+measured, and removed because it scored ordinary replies like *"I'd be happy to
+help"* below any threshold that also caught off-topic prose. Overlapping
+partial guarantees beat one layer pretending to be complete.
+
+The sharpest check is numeric: **every multi-digit figure in an answer must
+appear in the knowledge base.** Invented prices, possession dates, and RERA
+registration numbers are exactly the fabrications that would harm the client,
+and every one of them is a multi-digit number absent from the corpus.
 
 Layer 1 is tuned for **high precision, not high recall**: it rejects only what it is certain
 about, and lets ambiguous questions through to layers 3 and 4. A filter aggressive enough to

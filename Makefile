@@ -28,7 +28,10 @@ test:  ## Run the test suite
 cov:  ## Run tests with a coverage report
 	uv run pytest --cov --cov-report=term-missing
 
-ci: lint types cov  ## Everything CI runs, locally
+cov-guardrails:  ## Guardrails carry a higher bar than the rest of the codebase
+	uv run pytest --cov=backend/app/domain/guardrails --cov-fail-under=95 -q
+
+ci: lint types cov cov-guardrails  ## Everything CI runs, locally
 
 kb:  ## Regenerate the knowledge base from the live site (ARGS=--offline to use cache)
 	uv run --extra kb python knowledge-base/build_kb.py $(ARGS)
