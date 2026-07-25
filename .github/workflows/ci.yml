@@ -47,6 +47,12 @@ jobs:
       - name: mypy (strict)
         run: uv run mypy
 
+      # Rebuilds from the committed raw/ HTML — no network, so a site outage
+      # cannot redden the build. Catches a knowledge_base.xml edited by hand or
+      # left stale after a builder change.
+      - name: Knowledge base is up to date
+        run: uv run --extra kb python knowledge-base/build_kb.py --check
+
       - name: pytest
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
 

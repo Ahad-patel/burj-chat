@@ -18,8 +18,8 @@ general-knowledge answer.
 |---|---|---|
 | 0 | Architecture plan | ✅ Done |
 | 1 | Scaffold, tooling, CI | ✅ Done |
-| 2 | Knowledge base builder | ⬜ Next |
-| 3 | Domain layer + `LLMClient` port | ⬜ |
+| 2 | Knowledge base builder | ✅ Done |
+| 3 | Domain layer + `LLMClient` port | ⬜ Next |
 | 4 | LLM adapters + conversation service | ⬜ |
 | 5 | API layer | ⬜ |
 | 6 | Embeddable widget | ⬜ |
@@ -167,19 +167,53 @@ CI fails the build on any violation.
 
 ## Knowledge base
 
-Built from ten pages, not the six in the site's navigation. The three project *listing* pages
+```bash
+make kb                  # fetch the live site and regenerate
+make kb ARGS=--offline   # rebuild from committed raw/ HTML, no network
+make kb-check            # fail if the committed XML is stale (runs in CI)
+```
+
+Built from **ten** pages, not the six in the site's navigation. The three project *listing* pages
 (`ongoing`, `completed`, `upcoming`) are navigation shells holding under 50 words each; roughly
 85% of the real content lives on the four project detail pages reached via their "Read More"
 links (`burj-ashrafi`, `burj-classic`, `burj-qadri`, `burj-chishti`).
 
-Total: ~6–7k words ≈ 10k tokens. **The entire knowledge base fits in every request's context**,
-which is why this project has no embeddings, no chunking, and no vector store. Retrieval would
-add moving parts and a failure mode to solve a problem that does not exist at this size.
+Output: **1,903 words / 21 KB ≈ 5k tokens.** The entire knowledge base fits in every request's
+context, which is why this project has no embeddings, no chunking, and no vector store.
+Retrieval would add moving parts and a failure mode to solve a problem that does not exist at
+this size. `test_kb_is_small_enough_to_inject_whole` fails if that stops being true.
+
+`raw/` holds the scraped HTML and is committed, so builds are reproducible offline and a diff
+shows exactly what changed when the client edits their site.
+
+### Three site quirks the builder has to handle
+
+These are pinned by regression tests, because a scraper fails *silently* — when markup changes,
+extraction quietly returns nothing and the assistant starts refusing every question while looking
+perfectly healthy.
+
+1. **The site is ASP.NET WebForms, so the entire page body sits inside one `<form>`.** Stripping
+   forms as boilerplate — correct on almost any other site — deletes every word of content.
+2. **A project is spelled two ways.** `upcoming.aspx` displays "Burj Chisti"; the URL is
+   `burj-chishti.aspx`. Matching names to slugs silently dropped a 1,200-word detail page, so
+   pairing is structural — via the link inside each card, bounded so a card cannot borrow its
+   neighbour's link.
+3. **Unit configurations exist only in image filenames.** "1 BHK" is never written in text; the
+   sole record is `images/burj-chishti/1.5bhk.jpg`.
+
+### The overrides layer
 
 `build_kb.py` merges scraped output with a hand-maintained `overrides.yaml`, overrides winning.
-This exists because the source data contradicts itself — `ongoing.aspx` lists Burj Ashrafi as
-ongoing while `burj-ashrafi.aspx` reports it complete — and because the client needs a way to
-correct facts and add pricing without waiting on their webmaster.
+It supplies what the site omits (pricing and availability answers that route to the sales team),
+strips the marketing paragraph repeated verbatim on all four project pages, and disambiguates
+**Burj Ashrafi Phase 1 vs Phase 2** — Phase 1 is complete and has a detail page, Phase 2 is
+ongoing and is named on `ongoing.aspx` with no page and no published specs.
+
+Only verified facts belong in that file: it is fed to the model as ground truth and stated to real
+customers as fact. **No RERA number appears anywhere in the knowledge base** — the site publishes
+certificates as PDFs without transcribing the numbers, and an invented registration number is the
+most damaging thing this assistant could say. Placeholders sit commented out awaiting the
+client's confirmation, and a test asserts none has leaked in.
 
 ---
 

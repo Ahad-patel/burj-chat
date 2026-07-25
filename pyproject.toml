@@ -16,6 +16,7 @@ dependencies = [
     "httpx>=0.27",
     "google-genai>=0.3",
     "anthropic>=0.39",
+    "defusedxml>=0.7",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +24,7 @@ dependencies = [
 kb = [
     "beautifulsoup4>=4.12",
     "lxml>=5.3",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]
@@ -34,6 +36,8 @@ dev = [
     "pytest-cov>=6.0",
     "respx>=0.21",
     "types-beautifulsoup4>=4.12",
+    "types-pyyaml>=6.0",
+    "types-defusedxml>=0.7",
 ]
 
 [build-system]
@@ -105,10 +109,10 @@ warn_no_return = true
 disallow_any_unimported = true
 show_error_codes = true
 pretty = true
-# Phase 2 must add "knowledge-base" here once build_kb.py exists. mypy errors
-# on a directory containing no .py files, so it cannot be listed pre-emptively.
-files = ["backend/app", "backend/tests"]
-mypy_path = "backend"
+files = ["backend/app", "backend/tests", "knowledge-base"]
+# The hyphen in "knowledge-base" makes it an invalid package name, but it is a
+# perfectly valid sys.path entry — so build_kb.py imports as a top-level module.
+mypy_path = "backend:knowledge-base"
 
 [[tool.mypy.overrides]]
 # Third-party packages that ship no type information.
@@ -121,7 +125,7 @@ ignore_missing_imports = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
-pythonpath = ["backend"]
+pythonpath = ["backend", "knowledge-base"]
 asyncio_mode = "auto"
 addopts = [
     "--strict-markers",

@@ -30,8 +30,11 @@ cov:  ## Run tests with a coverage report
 
 ci: lint types cov  ## Everything CI runs, locally
 
-kb:  ## Regenerate the knowledge base from the live site (single command)
-	uv run --extra kb python knowledge-base/build_kb.py
+kb:  ## Regenerate the knowledge base from the live site (ARGS=--offline to use cache)
+	uv run --extra kb python knowledge-base/build_kb.py $(ARGS)
+
+kb-check:  ## Fail if the committed knowledge base is stale (runs in CI)
+	uv run --extra kb python knowledge-base/build_kb.py --check
 
 run:  ## Start the API with auto-reload
 	uv run uvicorn app.main:app --reload --port 8000

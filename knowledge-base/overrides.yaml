@@ -1,0 +1,129 @@
+# ---------------------------------------------------------------------------
+# Hand-curated corrections and additions to the scraped knowledge base.
+#
+# `build_kb.py` merges this over the scraped output — this file wins.
+#
+# WHY THIS EXISTS
+#   The website omits several facts every buyer asks about (RERA numbers,
+#   possession dates, pricing) and repeats a block of template marketing copy on
+#   all four project pages. This layer lets the client fix and extend the
+#   assistant's knowledge without editing code or waiting on their webmaster.
+#
+# RULE: only put VERIFIED facts here.
+#   Everything in this file is fed to the model as ground truth, and the
+#   assistant will state it to real customers as fact. An invented possession
+#   date is worse than no possession date — the fallback ("please contact our
+#   team") is always the safe answer. Unverified fields are left commented out
+#   below, ready for the client to confirm and enable.
+# ---------------------------------------------------------------------------
+
+# Facts stated on the site, lifted into a structured header so the model does
+# not have to infer them from prose.
+company:
+  legal_name: Burj Constructions
+  founded: 1901
+  founding_note: >-
+    The Latif family began business in Mumbai in 1901 as a contractor for
+    Burmah Shell, transporting oil and petrol.
+  entered_real_estate: 1962
+  years_in_business: 124
+  headquarters: Mumbai, India
+  operating_area: South Mumbai
+  units_delivered: 500+ residential and commercial units since 2009
+  area_developed: Up to 4 lakh square feet
+  services: >-
+    Project financing, property development, pre-construction management and
+    design, and construction delivery.
+
+# Repeated verbatim at the top of all four project detail pages. It is generic
+# marketing copy that describes no specific project, so four copies would only
+# skew the model toward quoting it. Matched on the first 60 characters.
+drop_paragraphs:
+  - "A large part of our business is in the commercial real estate sector."
+
+# Contact details, verified against contact-us.aspx.
+contact:
+  office_address: >-
+    Wadiwala, 53, Victoria Road, Beside HDFC Bank, Mustufa Bazzaar,
+    Byculla East, Mumbai 400010
+  phone: "+91 98199 62446"
+  whatsapp: "+91 98199 62446"
+  email: Latifcorp@aol.com
+  office_hours: "Monday to Saturday, 11:00 AM to 8:00 PM"
+  instagram: "https://www.instagram.com/burjconstructions"
+
+projects:
+  # -------------------------------------------------------------------------
+  # Burj Ashrafi is TWO phases, and the site presents them confusingly:
+  #   - burj-ashrafi.aspx      -> "Burj Ashrafi (Phase 1)", status Completed
+  #   - ongoing.aspx           -> "Burj Ashrafi (Phase 2)", no detail page
+  # Without this note the assistant would contradict itself depending on which
+  # page's data it drew from.
+  # -------------------------------------------------------------------------
+  burj-ashrafi:
+    notes:
+      - >-
+        Burj Ashrafi Phase 1 is complete. A separate Phase 2 of the same
+        development is currently ongoing; details for Phase 2 are not yet
+        published, so direct Phase 2 enquiries to the sales team.
+    # RERA is published on the site only as a downloadable PDF certificate, not
+    # as a number. Fill in once confirmed from the certificate, then uncomment.
+    # specs:
+    #   Rera: "P51900XXXXXX"
+
+  burj-ashrafi-phase-2:
+    notes:
+      - >-
+        Burj Ashrafi Phase 2 is an ongoing project. Specifications, floor plans,
+        and pricing have not been published yet. Interested buyers should
+        contact the sales team directly.
+
+  burj-qadri:
+    # Same as above — certificate exists as a PDF, number not yet transcribed.
+    # specs:
+    #   Rera: "P51900XXXXXX"
+    notes: []
+
+  burj-chishti:
+    notes:
+      - >-
+        Burj Chishti is not yet RERA registered; the site lists its RERA status
+        as pending. Do not state a RERA number for this project.
+
+# Answers to questions the site does not address. Every entry here must either
+# state a verified fact or route the visitor to a human — never guess.
+faq:
+  - question: What are the prices or rates for your apartments?
+    answer: >-
+      Pricing is not published online and varies by project, floor, and unit
+      configuration. Please contact the sales team on +91 98199 62446 (call or
+      WhatsApp) or email Latifcorp@aol.com for current rates and availability.
+
+  - question: Are there any units currently available for sale?
+    answer: >-
+      Availability changes frequently and is not published online. Please
+      contact the sales team on +91 98199 62446 or email Latifcorp@aol.com to
+      check current availability.
+
+  - question: How can I book a site visit?
+    answer: >-
+      Site visits can be arranged by calling or messaging +91 98199 62446 on
+      WhatsApp, or by emailing Latifcorp@aol.com. The office is open Monday to
+      Saturday, 11:00 AM to 8:00 PM.
+
+  - question: Where are your projects located?
+    answer: >-
+      All current projects are in South Mumbai. Burj Ashrafi and Burj Chishti
+      are on Kambekar Street off Mohammed Ali Road (Mumbai 400003), Burj Classic
+      is in Dongri, and Burj Qadri is in Agripada near Mumbai Central.
+
+  - question: Do you handle commercial as well as residential projects?
+    answer: >-
+      Yes. Burj Ashrafi, Burj Classic, Burj Qadri, and Burj Chishti are all
+      listed as commercial and residential developments.
+
+  - question: What is the RERA registration number for a project?
+    answer: >-
+      RERA certificates are published as downloadable PDFs on each project page
+      of burjconstructions.com. For the registration number itself, please
+      contact the team on +91 98199 62446 or email Latifcorp@aol.com.
