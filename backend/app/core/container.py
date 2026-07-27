@@ -25,6 +25,7 @@ from app.domain.ports.llm_client import LLMClient
 from app.infrastructure.kb.loader import load_knowledge_base
 from app.infrastructure.llm.anthropic_client import AnthropicClient
 from app.infrastructure.llm.gemini_client import GeminiClient
+from app.infrastructure.llm.openai_compatible import OpenAICompatibleClient
 from app.services.conversation_service import ConversationService
 from app.services.conversation_store import ConversationStore
 
@@ -52,6 +53,14 @@ def build_llm_client(settings: Settings) -> LLMClient:
                 timeout_seconds=settings.llm_timeout_seconds,
             )
             model = settings.anthropic_model
+        case Provider.OPENAI_COMPATIBLE:
+            client = OpenAICompatibleClient(
+                api_key=settings.openai_compat_api_key,
+                model=settings.openai_compat_model,
+                base_url=settings.openai_compat_base_url,
+                timeout_seconds=settings.llm_timeout_seconds,
+            )
+            model = f"{settings.openai_compat_model} @ {settings.openai_compat_base_url}"
 
     logger.info("llm_client_built", provider=settings.llm_provider.value, model=model)
     return client

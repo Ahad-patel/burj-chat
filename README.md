@@ -63,7 +63,7 @@ Clean Architecture with strictly inward-only dependencies.
                             │ declares
                         ports/LLMClient
                             ▲ implements
-              GeminiClient ─┴─ AnthropicClient
+     GeminiClient ─ AnthropicClient ─ OpenAICompatibleClient
 ```
 
 The domain layer imports nothing but the standard library. That constraint is what makes the
@@ -73,20 +73,41 @@ environment variable.
 **It is enforced, not documented.**
 [backend/tests/architecture/test_layer_boundaries.py](backend/tests/architecture/test_layer_boundaries.py)
 parses every domain module's syntax tree and fails the build on a forbidden import. A second test
-asserts no module outside the two adapters imports a vendor SDK — which is what makes
+asserts no module outside the LLM adapters imports a vendor SDK — which is what makes
 "swapping providers costs one env var" a verifiable claim rather than an aspiration.
 
 ### Swapping the LLM provider
 
 ```bash
-LLM_PROVIDER=gemini      # Google AI Studio free tier (development default)
-LLM_PROVIDER=anthropic   # Claude (production option)
+LLM_PROVIDER=gemini             # Google AI Studio free tier (development default)
+LLM_PROVIDER=anthropic          # Claude (production option)
+LLM_PROVIDER=openai_compatible  # any open-weight model (Groq, OpenRouter, Ollama, vLLM…)
 ```
 
+The third option is one adapter covering every service that speaks the OpenAI
+chat-completions API, so those are a **URL change, not a code change**:
+
+| Provider | Free tier | `OPENAI_COMPAT_BASE_URL` |
+|---|---|---|
+| Groq | generous | `https://api.groq.com/openai/v1` |
+| OpenRouter | some free models | `https://openrouter.ai/api/v1` |
+| Together | credits | `https://api.together.xyz/v1` |
+| Ollama | local, free, **no key** | `http://localhost:11434/v1` |
+| vLLM | self-hosted | `http://localhost:8000/v1` |
+
+Adding it took one new file and three lines in the composition root — nothing in
+the domain, the guardrails, the service, or the API layer changed. It needs no
+new SDK either: the wire format is a JSON POST, so it uses the `httpx` already
+in the tree.
+
+Open-weight models follow instructions less reliably than the frontier models,
+so Layer 4 rejects more of their answers and visitors see the fallback more
+often. That is the guardrail working, not failing.
+
 Nothing else changes. No code, no config, no redeploy of the widget.
-`test_only_the_provider_field_differs` asserts that literally: it diffs every
-settings field across the two configurations and requires the difference to be
-exactly `{"llm_provider"}`.
+`test_only_the_provider_field_differs_across_all_three` asserts that literally:
+it diffs every settings field across all three configurations and requires the
+difference to be exactly `{"llm_provider"}`.
 
 **The adapters are not symmetric, and that is the point.** Current Claude models
 (Opus 5, Sonnet 5, Opus 4.8/4.7) **reject** `temperature` with a 400. Gemini

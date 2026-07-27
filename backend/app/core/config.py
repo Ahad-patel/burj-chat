@@ -32,6 +32,9 @@ class Provider(StrEnum):
 
     GEMINI = "gemini"
     ANTHROPIC = "anthropic"
+    #: Any service speaking the OpenAI chat-completions API — Groq, OpenRouter,
+    #: Together, DeepInfra, vLLM, Ollama. One adapter, selected by base URL.
+    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 class Environment(StrEnum):
@@ -58,6 +61,7 @@ class Settings(BaseSettings):
     llm_provider: Provider = Provider.GEMINI
     gemini_api_key: str = ""
     anthropic_api_key: str = ""
+    openai_compat_api_key: str = ""
 
     gemini_model: str = "gemini-2.0-flash"
 
@@ -67,6 +71,12 @@ class Settings(BaseSettings):
     #: the client to make deliberately, not one to bury in a default, so the
     #: alternatives are documented in .env.example rather than silently applied.
     anthropic_model: str = "claude-opus-5"
+
+    #: Where to send OpenAI-compatible requests. Defaults to Groq, which has the
+    #: most usable free tier for open-weight models. See .env.example for the
+    #: other providers this covers.
+    openai_compat_base_url: str = "https://api.groq.com/openai/v1"
+    openai_compat_model: str = "llama-3.3-70b-versatile"
 
     llm_temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.2
     llm_max_output_tokens: Annotated[int, Field(gt=0, le=8192)] = 1024
@@ -104,9 +114,13 @@ class Settings(BaseSettings):
     @property
     def active_api_key(self) -> str:
         """The key for whichever provider is selected."""
-        return (
-            self.gemini_api_key if self.llm_provider is Provider.GEMINI else self.anthropic_api_key
-        )
+        match self.llm_provider:
+            case Provider.GEMINI:
+                return self.gemini_api_key
+            case Provider.ANTHROPIC:
+                return self.anthropic_api_key
+            case Provider.OPENAI_COMPATIBLE:
+                return self.openai_compat_api_key
 
     @model_validator(mode="after")
     def _require_key_for_active_provider(self) -> Self:
@@ -117,6 +131,11 @@ class Settings(BaseSettings):
         this at boot converts a silent 500 on the first visitor question into a
         crash the deploy will catch.
         """
+        # Self-hosted runtimes (Ollama, vLLM) legitimately need no key, so the
+        # OpenAI-compatible provider is exempt from this check.
+        if self.llm_provider is Provider.OPENAI_COMPATIBLE:
+            return self
+
         if not self.active_api_key.strip():
             raise ValueError(
                 f"LLM_PROVIDER is {self.llm_provider.value!r} but "
