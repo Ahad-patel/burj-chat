@@ -29,3 +29,9 @@ widget/dist/
 .DS_Store
 .idea/
 *.swp
+
+# --- Widget ---
+widget/dist/
+widget/node_modules/
+widget/demo/*.css
+widget/demo/*.min.js

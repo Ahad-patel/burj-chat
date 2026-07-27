@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Burj widget — host collision harness</title>
+
+<!--
+  This page reproduces the real host environment rather than approximating it.
+  bootstrap.min.css, animate.min.css, burj.css and style.css are the actual
+  files served from burjconstructions.com, and jQuery is the same 3.5.1 the
+  site loads. Testing against a blank sandbox proves nothing — the whole point
+  is whether the widget survives *this* cascade.
+-->
+<link rel="stylesheet" href="bootstrap.min.css">
+<link rel="stylesheet" href="animate.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="burj.css">
+
+<style>
+  /*
+    Deliberately hostile CSS on top of the real thing. Every rule below would
+    visibly wreck a widget that rendered into the light DOM: forced fonts,
+    !important colours, universal borders, and resets aimed squarely at the
+    element types a chat widget is built from.
+  */
+  * { font-family: "Comic Sans MS", cursive !important; }
+  button {
+    background: #ff00ff !important;
+    color: #00ff00 !important;
+    font-size: 28px !important;
+    border: 6px dashed red !important;
+    border-radius: 0 !important;
+    padding: 40px !important;
+    text-transform: uppercase !important;
+  }
+  div { border: 2px solid lime !important; }
+  textarea, input {
+    background: black !important;
+    color: red !important;
+    font-size: 30px !important;
+    border: 8px solid orange !important;
+  }
+  svg { width: 200px !important; height: 200px !important; }
+  h2, p { color: hotpink !important; text-decoration: underline !important; }
+
+  /* Host-page classes that would collide with generic widget class names. */
+  .btn, .card, .modal, .close, .panel, .header, .input, .send, .log, .chip {
+    background: repeating-linear-gradient(45deg, red, red 10px, yellow 10px, yellow 20px) !important;
+    color: black !important;
+    font-size: 40px !important;
+  }
+
+  body { padding: 24px; background: #f4f1ea; }
+  .report { font-family: ui-monospace, Menlo, monospace !important; font-size: 13px; }
+  .report li { list-style: none; margin: 4px 0; }
+  .ok::before  { content: "PASS  "; color: #157f3d; font-weight: 700; }
+  .bad::before { content: "FAIL  "; color: #c0261a; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>Host collision harness</h1>
+<p>
+  Real Bootstrap + Animate.css + the site's own CSS + jQuery 3.5.1, plus hostile
+  overrides. The widget should be completely unaffected.
+</p>
+
+<!-- Host-page controls, to show what the hostile CSS does to unprotected elements. -->
+<button class="btn">A host page button with .btn (should look wrecked)</button>
+<button id="plain-control">An unclassed host button (control for the harness)</button>
+<div class="card">A host page card (should look wrecked)</div>
+
+<h2>Automated checks</h2>
+<ul id="report" class="report"></ul>
+
+<script src="jquery.min.js"></script>
+<script src="../dist/burj-chat.js" data-api-url="http://localhost:8000"></script>
+
+<script>
+/*
+  Assertions run in a real browser, where the cascade actually applies —
+  something jsdom cannot verify. These checks deliberately look only at what
+  the *host page* can observe; the deeper computed-style checks live in
+  tests/isolation.browser.mjs, which pierces the shadow boundary the way an
+  auditing tool should be able to.
+*/
+function runChecks() {
+  var results = [];
+  function check(name, passed, detail) {
+    results.push({ name: name, passed: passed, detail: detail || "" });
+  }
+
+  var host = document.querySelector("[data-burj-chat]");
+
+  check("widget mounted", !!host);
+
+  check(
+    "widget renders inside a shadow root",
+    !!host && host.shadowRoot !== null,
+    "expected an open shadow root so tooling can audit it"
+  );
+
+  // jQuery is what the host site actually uses to sweep the DOM.
+  check(
+    "jQuery cannot select widget internals",
+    window.jQuery(".bc-launcher").length === 0 &&
+      window.jQuery(".bc-panel").length === 0,
+    "found " + window.jQuery(".bc-launcher").length + " launchers via jQuery"
+  );
+
+  check(
+    "widget adds no buttons to the host document",
+    document.querySelectorAll("body > button").length === 2,
+    "expected only the page's own two control buttons, found " +
+      document.querySelectorAll("body > button").length
+  );
+
+  check(
+    "widget leaks no stylesheet into the host document",
+    document.querySelectorAll("head style, head link[rel=stylesheet]").length <= 5,
+    "widget CSS must live inside the shadow root"
+  );
+
+  // The host element itself inherits from the page; `all: initial` on :host is
+  // what stops that reaching the widget's contents.
+  if (host) {
+    var hostStyle = getComputedStyle(host);
+    check(
+      "widget host element is not force-bordered by `div { border }`",
+      hostStyle.borderTopWidth === "0px" || hostStyle.borderStyle === "none",
+      "border was: " + hostStyle.borderTopWidth + " " + hostStyle.borderStyle
+    );
+  }
+
+  check(
+    "global API is exposed for the host page",
+    !!window.BurjChat && typeof window.BurjChat.open === "function"
+  );
+
+  var list = document.getElementById("report");
+  results.forEach(function (r) {
+    var li = document.createElement("li");
+    li.className = r.passed ? "ok" : "bad";
+    li.textContent = r.name + (r.passed ? "" : " — " + r.detail);
+    list.appendChild(li);
+  });
+
+  var failed = results.filter(function (r) { return !r.passed; }).length;
+  var summary = document.createElement("li");
+  summary.className = failed === 0 ? "ok" : "bad";
+  summary.textContent =
+    results.length - failed + "/" + results.length + " checks passed";
+  list.appendChild(summary);
+
+  // Surfaced for the Playwright run in tests/isolation.browser.mjs.
+  window.__collisionReport = { results: results, failed: failed };
+}
+
+// The widget defers its own mount to DOMContentLoaded, so these checks must
+// wait too — running during parse measured an empty page and reported four
+// false failures.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", runChecks, { once: true });
+} else {
+  runChecks();
+}
+</script>
+</body>
+</html>

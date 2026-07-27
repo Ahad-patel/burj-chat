@@ -22,8 +22,8 @@ general-knowledge answer.
 | 3 | Domain layer + `LLMClient` port | ✅ Done |
 | 4 | LLM adapters + conversation service | ✅ Done |
 | 5 | API layer | ✅ Done |
-| 6 | Embeddable widget | ⬜ Next |
-| 7 | Voice (optional) | ⬜ |
+| 6 | Embeddable widget | ✅ Done |
+| 7 | Voice (optional) | ⬜ Next — optional |
 
 ---
 
@@ -202,6 +202,51 @@ and self-identifying — it tells a caller nothing the answer text doesn't.
 endpoint, so unguessable identifiers are the only thing stopping someone walking
 `1`, `2`, `3` and appending to other visitors' conversations — which is why the
 schema rejects anything that isn't UUID4 shaped.
+
+## Widget
+
+One self-contained file, **34 KB gzipped**, embedded with a single tag:
+
+```html
+<script src="https://your-cdn/burj-chat.js"
+        data-api-url="https://api.burjconstructions.com" defer></script>
+```
+
+```sh
+cd widget && npm run check   # typecheck + 73 unit tests + browser isolation run
+```
+
+### The palette is the site's, not a guess
+
+`#deb339` is the most-used colour in the client's own `css/burj.css`; the dark
+surfaces `#1e2126`/`#23262d` and the Poppins typeface come from the same place.
+**The brief specified "navy/gold" — the site has no navy anywhere.** Building
+navy would have produced exactly the bolted-on look the palette exists to avoid.
+
+Contrast is asserted rather than claimed: `tests/contrast.test.ts` computes WCAG
+ratios for all 11 pairings the widget actually renders and fails the build below
+4.5:1. It also pins the constraint that shapes the design — gold on white is
+**1.98:1** and fails badly, which is why gold only ever appears as a background
+with dark ink on it, or as text on charcoal.
+
+### Isolation is verified in a browser, not asserted
+
+`npm run verify` loads the built bundle into headless Chromium on a page
+carrying the client's real Bootstrap, Animate.css, `burj.css`, and jQuery 3.5.1,
+plus hostile overrides (`* { font-family: Comic Sans !important }`,
+`button { background: magenta !important; padding: 40px !important }`,
+`div { border: 2px solid lime !important }`), then reads **computed** styles
+inside the shadow root. 20/20 checks pass.
+
+The harness includes a control assertion that the hostile CSS genuinely wrecks
+an unprotected element — without it, every isolation check could pass by the
+overrides silently failing to apply.
+
+That run found a real bug jsdom could not: the host wrapper lives in the *light*
+DOM, so `div { border: … !important }` reached it and drew a lime box around the
+whole widget. Fixed by a `:host` block using `!important`, which under CSS
+Cascading 4 beats an outer `!important` because importance reverses the usual
+shadow ordering.
 
 ## Security
 
