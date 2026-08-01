@@ -399,3 +399,63 @@ class TestHealth:
         assert client.get("/health").status_code == 200
         assert client.get("/ready").status_code == 200
         assert load_real_knowledge_base().sections
+
+
+class TestOutagesAreDistinguishableFromRefusals:
+    """A provider outage must not masquerade as a grounding refusal.
+
+    This cost real debugging time: with the backend down, the widget showed
+    "I don't have information about that" — which implies the knowledge base
+    was consulted and came up empty. The reporter reasonably concluded the
+    *frontend* was broken.
+
+    Distinguishing the two leaks nothing. An upstream failure is not a
+    guardrail decision, so naming it tells an attacker nothing about the
+    filter — unlike the reason a guardrail fired, which is still never
+    disclosed (see TestErrorsLeakNothing).
+    """
+
+    def _failing_client(self, error: type[Exception]) -> Any:
+        class Failing:
+            async def generate(self, request: object) -> object:
+                raise error("upstream is down")
+
+        return Failing()
+
+    @pytest.mark.parametrize(
+        "error_name", ["LLMRateLimitError", "LLMTimeoutError", "LLMUnavailableError"]
+    )
+    def test_a_provider_failure_returns_503_not_the_fallback(self, error_name: str) -> None:
+        from app.domain.ports import errors as llm_errors
+
+        for broken in make_client():
+            service = service_of(broken)
+            service._llm = self._failing_client(getattr(llm_errors, error_name))
+
+            response = ask(broken, "What amenities does Burj Chishti have?")
+
+            assert response.status_code == 503
+            assert "don't have information" not in response.text
+            assert response.headers["Retry-After"] == "30"
+
+    def test_the_503_body_says_nothing_about_the_provider(self) -> None:
+        from app.domain.ports.errors import LLMRateLimitError
+
+        for broken in make_client():
+            service_of(broken)._llm = self._failing_client(LLMRateLimitError)
+
+            body = ask(broken, "What amenities are there?").json()
+
+            assert body == {
+                "detail": "The assistant is temporarily unavailable. Please try again shortly."
+            }
+            for leak in ("gemini", "groq", "anthropic", "llama", "rate", "token"):
+                assert leak not in body["detail"].lower()
+
+    def test_a_guardrail_refusal_is_still_a_200_with_the_fallback(self) -> None:
+        """The distinction cuts one way only — refusals are not errors."""
+        for client in make_client():
+            response = ask(client, "who is the prime minister of India")
+
+            assert response.status_code == 200
+            assert response.json()["is_fallback"] is True

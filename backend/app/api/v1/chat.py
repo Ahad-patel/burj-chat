@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.api.dependencies import ConversationServiceDep, enforce_rate_limits
 from app.schemas.chat import ChatRequest, ChatResponse, ErrorResponse
+from app.services.conversation_service import Outcome
 
 router = APIRouter(tags=["chat"])
 
@@ -36,12 +37,29 @@ async def chat(
 ) -> ChatResponse:
     """Answer from the knowledge base, or return the fallback.
 
-    This handler has no failure branch of its own. The service degrades every
-    error — guardrail rejection, provider outage, invalid input — into the same
-    fallback reply, so a visitor never sees a 500 for an ordinary question.
+    Guardrail refusals return 200 with the fallback — a refusal is a valid
+    answer, not an error.
+
+    A **provider outage is different** and returns 503. The service degrades it
+    to the same fallback text internally, and returning that verbatim would
+    tell a visitor "I don't have information about that" when the truth is that
+    nothing was ever asked. That is actively misleading: it implies the
+    knowledge base was consulted and came up empty, and it makes an outage
+    indistinguishable from a grounding refusal for whoever is debugging.
+
+    This leaks nothing. An upstream failure is not a guardrail decision, so
+    naming it tells an attacker nothing about the filter — unlike the *reason*
+    a guardrail fired, which is still never disclosed.
     """
     conversation_id = payload.resolved_conversation_id()
     reply = await service.respond(conversation_id, payload.message)
+
+    if reply.outcome is Outcome.PROVIDER_ERROR:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The assistant is temporarily unavailable. Please try again shortly.",
+            headers={"Retry-After": "30"},
+        )
 
     # Echoed so the widget can correlate a report with a log line. The service
     # logs the same id alongside the guardrail decision.
