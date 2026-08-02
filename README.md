@@ -23,7 +23,8 @@ general-knowledge answer.
 | 4 | LLM adapters + conversation service | ✅ Done |
 | 5 | API layer | ✅ Done |
 | 6 | Embeddable widget | ✅ Done |
-| 7 | Voice (optional) | ⬜ Next — optional |
+| 6.5 | Deployment (Oracle Always Free + GitHub Pages) | ✅ Done |
+| 7 | Voice (optional) | ⬜ Optional |
 
 ---
 
@@ -268,6 +269,30 @@ DOM, so `div { border: … !important }` reached it and drew a lime box around t
 whole widget. Fixed by a `:host` block using `!important`, which under CSS
 Cascading 4 beats an outer `!important` because importance reverses the usual
 shadow ordering.
+
+## Deployment
+
+**$0/month, permanently.** Full walkthrough in [deploy/README.md](deploy/README.md).
+
+| Piece | Where | Cost |
+|---|---|---|
+| API | Oracle Always Free ARM VM (4 cores, 24 GB, no expiry) | $0 |
+| TLS | Let's Encrypt via Caddy, auto-renewed | $0 |
+| Widget | GitHub Pages, built by Actions on every push | $0 |
+
+```sh
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+The container is built for **linux/arm64** because that is what Oracle's free
+tier runs, and CI builds that architecture on every push — an image that
+compiles on x86 can still fail on aarch64 when a dependency has no wheel.
+CI also boots the image and asserts `/health`, `/ready`, a guardrail refusal,
+and that `/docs` is 404 in production.
+
+TLS is not optional: the widget is embedded on an HTTPS page, so an HTTP API
+would be blocked as mixed content and the request would never leave the
+browser. Caddy handles the certificate with no cron job and no certbot.
 
 ## Security
 

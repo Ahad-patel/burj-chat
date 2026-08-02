@@ -1,0 +1,93 @@
+# Production stack for a single Oracle Always Free ARM VM.
+#
+# Two containers: the API, and Caddy in front of it for automatic TLS. There is
+# no database, no cache, and no queue — the service holds conversations in
+# memory with a TTL by design, so there is nothing here to back up.
+#
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# Secrets come from deploy/.env on the VM, which is never committed.
+
+services:
+  burj-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: burj-chat-api:latest
+    restart: unless-stopped
+
+    environment:
+      APP_ENV: production
+      LOG_LEVEL: INFO
+
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_COMPAT_API_KEY: ${OPENAI_COMPAT_API_KEY:-}
+      OPENAI_COMPAT_BASE_URL: ${OPENAI_COMPAT_BASE_URL:-}
+      OPENAI_COMPAT_MODEL: ${OPENAI_COMPAT_MODEL:-}
+
+      # Must list every origin the widget is embedded on. No wildcard — a
+      # permissive API origin lets any site on the internet spend the LLM budget.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+
+      # True because Caddy sits in front and overwrites X-Forwarded-For. Left
+      # false, per-IP rate limiting would key on Caddy's container address and
+      # throttle every visitor as if they were one person.
+      TRUST_PROXY_HEADERS: "true"
+
+      RATE_LIMIT_PER_IP_PER_MINUTE: ${RATE_LIMIT_PER_IP_PER_MINUTE:-20}
+      RATE_LIMIT_PER_SESSION_PER_HOUR: ${RATE_LIMIT_PER_SESSION_PER_HOUR:-100}
+
+    # Not published to the host. Only Caddy can reach the API, so there is no
+    # way to bypass TLS by hitting the VM's IP on port 8000.
+    expose:
+      - "8000"
+
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    # One instance, deliberately. Conversations live in this process's memory,
+    # so a second replica would drop a visitor's history whenever the load
+    # balancer sent them to the other one.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+    networks: [burj]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [burj-api]
+
+    environment:
+      DOMAIN: ${DOMAIN}
+
+    ports:
+      - "80:80"    # required for the ACME HTTP challenge
+      - "443:443"
+      - "443:443/udp"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates persist across restarts. Without this volume every
+      # `up -d` requests a fresh certificate and you hit Let's Encrypt's rate
+      # limit (5 per domain per week) within a couple of days of fiddling.
+      - caddy_data:/data
+      - caddy_config:/config
+
+    networks: [burj]
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  burj:
+    driver: bridge

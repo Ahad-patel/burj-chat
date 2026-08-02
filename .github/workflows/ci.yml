@@ -113,3 +113,67 @@ jobs:
         run: |
           pipx install semgrep
           semgrep --config=p/python --config=p/security-audit --error --skip-unknown-extensions .
+
+  container:
+    name: Container image builds for ARM64
+    runs-on: ubuntu-latest
+    # The deployment target is Oracle's Always Free tier, which is Ampere ARM.
+    # An image that builds on x86 can still fail on aarch64 when a dependency
+    # has no wheel for it, so this builds the architecture that actually runs.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build for linux/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Building proves it compiles; this proves it actually serves. Loaded as
+      # the runner's own architecture so it can be executed here.
+      - name: Build for local execution
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: burj-chat-api:ci
+          cache-from: type=gha
+
+      - name: Container boots and reports ready
+        run: |
+          docker run -d --name burj \
+            -e GEMINI_API_KEY=ci-smoke-test \
+            -e APP_ENV=production \
+            -p 8000:8000 burj-chat-api:ci
+
+          for i in $(seq 1 30); do
+            if curl -sf localhost:8000/ready > /dev/null; then
+              echo "ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          curl -sf localhost:8000/health | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -sf localhost:8000/ready  | grep -q '"status":"ready"'
+
+          # A guardrail refusal needs no provider call, so the whole chain is
+          # verifiable in CI without a real API key.
+          curl -sf -X POST localhost:8000/api/v1/chat \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"who is the prime minister of India"}' \
+            | grep -q '"is_fallback":true'
+
+          # Docs must be off in production.
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/docs)" = "404"
+
+          docker logs burj
+          docker rm -f burj

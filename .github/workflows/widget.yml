@@ -1,0 +1,84 @@
+name: Widget
+
+# Builds the widget and publishes it to GitHub Pages, which is the CDN the
+# client's site loads it from. Running on every push to main means the deployed
+# file is always the current source — nothing is built on a laptop and uploaded
+# by hand, and `widget/dist/` stays out of git.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "widget/**"
+      - ".github/workflows/widget.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never two deploys at once; let a newer commit supersede an in-flight one
+# rather than racing it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: widget
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: widget/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # A widget that fails its own contrast or isolation tests must not reach
+      # a customer's website, so the build is gated on them.
+      - name: Build
+        run: npm run build
+
+      - name: Report bundle size
+        run: |
+          size=$(gzip -c dist/burj-chat.js | wc -c)
+          echo "Gzipped: $((size / 1024)) KB" >> "$GITHUB_STEP_SUMMARY"
+          # The whole premise is one small script tag. Fail rather than let it
+          # creep to a size that slows down the client's page.
+          if [ "$size" -gt 61440 ]; then
+            echo "Bundle exceeded 60 KB gzipped" >&2
+            exit 1
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: widget/dist
+
+  deploy:
+    name: Publish to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

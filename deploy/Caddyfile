@@ -1,0 +1,25 @@
+# Caddy terminates TLS and proxies to the API.
+#
+# Caddy is here for one reason: it obtains and renews a Let's Encrypt
+# certificate automatically, with no cron job and no certbot. The widget is
+# embedded on an HTTPS page, so an HTTP-only API would be blocked as mixed
+# content — TLS is not optional here, it is the difference between the widget
+# working and silently failing in every visitor's browser.
+#
+# DOMAIN is substituted from the environment (see docker-compose.yml).
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Trust only the container network for forwarded headers. The app reads
+	# X-Forwarded-For for per-IP rate limiting, and that header is worth
+	# nothing unless something in front is guaranteed to overwrite it.
+	reverse_proxy burj-api:8000 {
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

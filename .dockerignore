@@ -1,0 +1,29 @@
+# Everything the runtime image does not need. Keeps the build context small and
+# — more importantly — guarantees secrets and local state cannot be copied in.
+
+.env
+.env.*
+!.env.example
+.git
+.github
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+coverage.xml
+requirements.txt
+
+# Tests and the scraper are not part of the running service.
+backend/tests
+knowledge-base/raw
+knowledge-base/build_kb.py
+knowledge-base/overrides.yaml
+
+# The widget is served from a CDN, not from the API.
+widget
+docs
+*.md
+!README.md
