@@ -155,9 +155,15 @@ curl -s -X POST https://$DOMAIN/api/v1/chat \
 
 ## Part 4 — The widget
 
-GitHub Actions builds and publishes it. Enable it once:
+GitHub Actions builds and publishes it. Pages must be enabled **once** — the
+workflow token cannot do this itself, as creating a Pages site needs repo-admin
+scope:
 
-**Settings → Pages → Source: GitHub Actions**
+```sh
+gh api --method POST repos/OWNER/REPO/pages -f build_type=workflow
+```
+
+or **Settings → Pages → Source: GitHub Actions**. Already done for this repo.
 
 Push to `main` and the workflow typechecks, runs the 73 tests, enforces the
 60 KB gzipped ceiling, and deploys. The file lands at:
