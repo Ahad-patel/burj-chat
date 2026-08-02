@@ -22,7 +22,10 @@ WORKDIR /app
 
 # Dependencies are installed before the application is copied, so a code change
 # does not invalidate the dependency layer.
-COPY pyproject.toml uv.lock ./
+# README.md is copied because pyproject declares `readme = "README.md"`, and
+# hatchling refuses to build the project without it. CI caught this on the
+# first ARM build; it is invisible until the project itself is installed.
+COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 

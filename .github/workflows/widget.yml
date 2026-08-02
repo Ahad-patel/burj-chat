@@ -65,7 +65,12 @@ jobs:
             exit 1
           fi
 
+      # `enablement` provisions Pages on first run, so deploying needs no
+      # manual repo setting. Without it the first run fails with a bare
+      # "Get Pages site failed / Not Found".
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
